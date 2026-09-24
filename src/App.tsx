@@ -49,6 +49,7 @@ export default function App() {
         onTabChange={setCurrentTab}
         session={session}
         branchNodes={branchNodes}
+        characters={characters}
         onSessionChange={setSession}
         onRefreshData={refreshAllData}
         onOpenImportStoryText={() => setShowGlobalImportModal(true)}

@@ -132,4 +132,22 @@ export interface StorySession {
   lastSyncTime: number;
   isMatureMode?: boolean; // 18+ 成人文學與開放張力模式
   authorFavoriteTastes?: string[]; // 作者偏好的劇情/對白類型
+  storyScriptId?: string; // 當前所屬劇本/故事 ID
 }
+
+export interface PresetScene {
+  id: string;
+  name: string;
+  description: string;
+  isDefault?: boolean;
+}
+
+export interface StoryScript {
+  id: string;
+  title: string;
+  summary: string;
+  createdAt: number;
+  updatedAt: number;
+  characterIds?: string[];
+}
+

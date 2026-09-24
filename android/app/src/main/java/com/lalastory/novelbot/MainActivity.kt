@@ -16,6 +16,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.webkit.WebViewAssetLoader
 
 class MainActivity : AppCompatActivity() {
 
@@ -75,8 +76,9 @@ class MainActivity : AppCompatActivity() {
 
         setupWebView()
 
-        val startUrl = getString(R.string.web_url)
-        webView.loadUrl(startUrl)
+        // Load local bundled assets directly via secure asset loader
+        val localAssetUrl = "https://appassets.androidplatform.net/assets/www/index.html"
+        webView.loadUrl(localAssetUrl)
 
         swipeRefresh.setOnRefreshListener {
             webView.reload()
@@ -96,12 +98,19 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        val assetLoader = WebViewAssetLoader.Builder()
+            .setDomain("appassets.androidplatform.net")
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
         settings.allowFileAccess = true
         settings.allowContentAccess = true
+        settings.allowFileAccessFromFileURLs = true
+        settings.allowUniversalAccessFromFileURLs = true
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.setSupportZoom(false)
@@ -111,6 +120,14 @@ class MainActivity : AppCompatActivity() {
         settings.userAgentString = settings.userAgentString + " LalaStoryLabApp/1.0"
 
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): WebResourceResponse? {
+                val url = request?.url ?: return null
+                return assetLoader.shouldInterceptRequest(url)
+            }
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 progressBar.visibility = View.VISIBLE
@@ -129,9 +146,8 @@ class MainActivity : AppCompatActivity() {
             ) {
                 super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
-                    val fallbackAsset = "file:///android_asset/www/index.html"
-                    // Try to fallback to offline built web bundle if available
-                    view?.loadUrl(fallbackAsset)
+                    // Direct file fallback if domain fails
+                    view?.loadUrl("file:///android_asset/www/index.html")
                 }
             }
 
@@ -140,16 +156,21 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?
             ): Boolean {
                 val url = request?.url?.toString() ?: return false
-                if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("file:///")) {
+                if (url.startsWith("https://appassets.androidplatform.net") || 
+                    url.startsWith("file:///android_asset")) {
                     return false
                 }
-                try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    startActivity(intent)
-                } catch (e: ActivityNotFoundException) {
-                    Toast.makeText(this@MainActivity, "無法開啟連結", Toast.LENGTH_SHORT).show()
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    // Open external links in device browser
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        startActivity(intent)
+                    } catch (e: ActivityNotFoundException) {
+                        Toast.makeText(this@MainActivity, "無法開啟外部連結", Toast.LENGTH_SHORT).show()
+                    }
+                    return true
                 }
-                return true
+                return false
             }
         }
 

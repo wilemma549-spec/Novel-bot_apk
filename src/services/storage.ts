@@ -16,6 +16,10 @@ const STORAGE_KEYS = {
   DIARIES: 'lala_story_diaries_v5',
   CORPUS: 'lala_story_corpus_v5',
   SESSION: 'lala_story_session_v5',
+  PRESET_SCENES: 'lala_story_preset_scenes_v5',
+  SCRIPTS: 'lala_story_scripts_v5',
+  GEMINI_KEY: 'lala_story_gemini_api_key',
+  API_SERVER_URL: 'lala_story_api_server_url',
 };
 
 // Initial welcome dialogue (Factual and respectful: Adam is adopted, clean dialogue)
@@ -466,4 +470,209 @@ export class StoryStorageService {
     this.saveCorpus(INITIAL_CORPUS);
     this.saveSession(INITIAL_SESSION);
   }
+
+  // Update existing message (Editable dialogue by author)
+  static updateMessage(messageId: string, updates: Partial<StoryMessage>): StoryMessage | null {
+    const messages = this.getMessages();
+    const idx = messages.findIndex(m => m.id === messageId);
+    if (idx === -1) return null;
+    messages[idx] = {
+      ...messages[idx],
+      ...updates,
+    };
+    this.saveMessages(messages);
+    return messages[idx];
+  }
+
+  static deleteMessage(messageId: string): void {
+    const messages = this.getMessages();
+    const filtered = messages.filter(m => m.id !== messageId);
+    this.saveMessages(filtered);
+  }
+
+  // Preset scenes management
+  static getPresetScenes(): { id: string; name: string; description: string; isDefault?: boolean }[] {
+    const defaultPresets = [
+      { id: 'scene_1', name: '客廳（日常生活場景）', description: '靜謐而暗流湧動的客廳，窗外光影斑駁，茶杯冒著微熱。', isDefault: true },
+      { id: 'scene_2', name: '雨夜私家辦公室', description: '昏黃檯燈、窗外暴雨連綿、手沖咖啡的香氣與堆疊的檔案案卷。', isDefault: true },
+      { id: 'scene_3', name: '深夜頂樓天台', description: '微涼夜風吹拂、遠處城市的霓虹燈海、若即若離的站立距離。', isDefault: true },
+      { id: 'scene_4', name: '幽暗古典書房深處', description: '羊皮紙卷、木質高聳書架與壁爐柴火微弱的燃燒聲。', isDefault: true },
+      { id: 'scene_5', name: '隱秘酒館包廂', description: '厚重天鵝絨窗簾、威士忌杯冰塊清脆碰撞、暗湧試探的對峙。', isDefault: true },
+      { id: 'scene_6', name: '長途火車包廂', description: '車輪規律撞擊鐵軌的震動、窗外飛速掠過的荒原與黃昏。', isDefault: true },
+      { id: 'scene_7', name: '雨中停靠的車內', description: '封閉狹窄的車廂、雨刷規律劃過擋風玻璃、模糊的路燈光暈。', isDefault: true },
+    ];
+    const raw = localStorage.getItem(STORAGE_KEYS.PRESET_SCENES);
+    if (!raw) {
+      this.savePresetScenes(defaultPresets);
+      return defaultPresets;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultPresets;
+    } catch {
+      return defaultPresets;
+    }
+  }
+
+  static savePresetScenes(scenes: { id: string; name: string; description: string; isDefault?: boolean }[]): void {
+    localStorage.setItem(STORAGE_KEYS.PRESET_SCENES, JSON.stringify(scenes));
+  }
+
+  static addPresetScene(scene: { name: string; description: string }): { id: string; name: string; description: string } {
+    const scenes = this.getPresetScenes();
+    const newScene = {
+      id: `scene_${Date.now()}`,
+      name: scene.name,
+      description: scene.description,
+      isDefault: false,
+    };
+    scenes.push(newScene);
+    this.savePresetScenes(scenes);
+    return newScene;
+  }
+
+  static updatePresetScene(id: string, name: string, description: string): void {
+    const scenes = this.getPresetScenes();
+    const idx = scenes.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      scenes[idx] = { ...scenes[idx], name, description };
+      this.savePresetScenes(scenes);
+    }
+  }
+
+  static deletePresetScene(id: string): void {
+    const scenes = this.getPresetScenes();
+    const filtered = scenes.filter(s => s.id !== id);
+    this.savePresetScenes(filtered.length > 0 ? filtered : this.getPresetScenes());
+  }
+
+  // Story / Script Profiles
+  static getStoryScripts(): { id: string; title: string; summary: string; createdAt: number; updatedAt: number }[] {
+    const defaultScript = [
+      {
+        id: 'script_lala_canon',
+        title: '啦啦的故事工坊（原著主線）',
+        summary: '以原著書本設定為唯一依據的主線劇本，包含 Adam（養子）等核心在場角色。',
+        createdAt: Date.now() - 86400000 * 7,
+        updatedAt: Date.now(),
+      }
+    ];
+    const raw = localStorage.getItem(STORAGE_KEYS.SCRIPTS);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEYS.SCRIPTS, JSON.stringify(defaultScript));
+      return defaultScript;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : defaultScript;
+    } catch {
+      return defaultScript;
+    }
+  }
+
+  static createStoryScript(title: string, summary: string): { id: string; title: string; summary: string; createdAt: number; updatedAt: number } {
+    const scripts = this.getStoryScripts();
+    const newScript = {
+      id: `script_${Date.now()}`,
+      title,
+      summary,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    scripts.push(newScript);
+    localStorage.setItem(STORAGE_KEYS.SCRIPTS, JSON.stringify(scripts));
+    return newScript;
+  }
+
+  static duplicateStoryScript(sourceScriptId: string, newTitle?: string): { id: string; title: string; summary: string; createdAt: number; updatedAt: number } | null {
+    const scripts = this.getStoryScripts();
+    const source = scripts.find(s => s.id === sourceScriptId) || scripts[0];
+    if (!source) return null;
+
+    const title = newTitle || `${source.title} (副本)`;
+    const newScript = {
+      id: `script_${Date.now()}`,
+      title,
+      summary: `複製自 ${source.title}：${source.summary}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    scripts.push(newScript);
+    localStorage.setItem(STORAGE_KEYS.SCRIPTS, JSON.stringify(scripts));
+    return newScript;
+  }
+
+  // Duplicate a character
+  static duplicateCharacter(charId: string, customName?: string): Character | null {
+    const characters = this.getCharacters();
+    const source = characters.find(c => c.id === charId);
+    if (!source) return null;
+
+    const name = customName || `${source.name} (分支)`;
+    const newChar: Character = {
+      ...source,
+      id: `char_${Date.now()}`,
+      name,
+      englishName: source.englishName ? `${source.englishName}_Copy` : '',
+      title: source.title ? `${source.title} (分支)` : '',
+      isCustom: true,
+      notes: `複製自 ${source.name}。${source.notes || ''}`,
+      stats: {
+        ...source.stats,
+        currentMindset: source.stats.currentMindset,
+      }
+    };
+    characters.push(newChar);
+    this.saveCharacters(characters);
+    return newChar;
+  }
+
+  static addCharacter(char: Partial<Character>): Character {
+    const characters = this.getCharacters();
+    const newChar: Character = {
+      id: char.id || `char_${Date.now()}`,
+      name: char.name || '新角色',
+      englishName: char.englishName || '',
+      title: char.title || '人物',
+      avatarColor: char.avatarColor || 'bg-indigo-100 text-indigo-700 border-indigo-200',
+      avatarInitial: char.avatarInitial || (char.name ? char.name[0] : '新'),
+      gender: char.gender || 'other',
+      tagline: char.tagline || '',
+      personality: char.personality || '',
+      background: char.background || '',
+      speechStyle: char.speechStyle || '',
+      relationshipWithLala: char.relationshipWithLala || '',
+      stats: char.stats || {
+        affection: 50,
+        trust: 50,
+        tension: 30,
+        intimacyStage: '審慎試探',
+        currentMindset: '初次登場，審慎觀察周圍環境。',
+      },
+      memoryTags: char.memoryTags || [],
+      isCustom: true,
+      notes: char.notes || '',
+    };
+    characters.push(newChar);
+    this.saveCharacters(characters);
+    return newChar;
+  }
+
+  // API Config
+  static getGeminiApiKey(): string {
+    return localStorage.getItem(STORAGE_KEYS.GEMINI_KEY) || '';
+  }
+
+  static setGeminiApiKey(key: string): void {
+    localStorage.setItem(STORAGE_KEYS.GEMINI_KEY, key.trim());
+  }
+
+  static getApiServerUrl(): string {
+    return localStorage.getItem(STORAGE_KEYS.API_SERVER_URL) || '';
+  }
+
+  static setApiServerUrl(url: string): void {
+    localStorage.setItem(STORAGE_KEYS.API_SERVER_URL, url.trim());
+  }
 }
+
