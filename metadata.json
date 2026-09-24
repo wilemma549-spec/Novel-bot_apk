@@ -1,0 +1,6 @@
+{
+  "name": "Lala Story Lab 故事分歧對話與創作工坊",
+  "description": "專為作者打造的沉浸式獨立故事對話與多維度劇情分支管理應用，支援自定義語料庫、角色數據看板、三人抉擇分支、階段日記生成與極簡書寫體驗。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
