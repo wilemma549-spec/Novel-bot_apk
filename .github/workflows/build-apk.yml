@@ -5,9 +5,12 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
-    name: Build and Package Android APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -17,7 +20,7 @@ jobs:
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Android SDK
@@ -29,30 +32,58 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Install Dependencies
-        run: npm ci || npm install
+      - name: Install Web Dependencies
+        run: npm ci
 
       - name: Build Web Application
         run: npm run build
 
-      - name: Install Bubblewrap CLI
-        run: npm install -g @bubblewrap/cli
-
-      - name: Package APK with Bubblewrap (TWA)
+      - name: Sync Web Dist to Android Assets
         run: |
-          mkdir -p android-build
-          cd android-build
-          echo "Building Android TWA Package for Lala Story Lab..."
-          # Initialize bubblewrap project using manifest URL
-          bubblewrap init --manifest https://ais-pre-wdhrfc6nhnsuwsmdeljtbx-706030277309.asia-east1.run.app/manifest.webmanifest --skipPwaValidation || true
-          bubblewrap build || true
+          mkdir -p android/app/src/main/assets/www
+          cp -r dist/* android/app/src/main/assets/www/
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: Set up Gradle 8.5
+        uses: gradle/actions/setup-gradle@v4
         with:
-          name: LalaStory-Android-APK
-          path: |
-            android-build/*.apk
-            android-build/app/build/outputs/apk/**/*.apk
-          if-no-files-found: warn
+          gradle-version: '8.5'
+
+      - name: Build Android Debug APK
+        run: |
+          cd android
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Prepare APK Output
+        run: |
+          mkdir -p release-output
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-output/LalaStoryLab.apk
+          ls -lh release-output/
+
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LalaStoryLab-APK
+          path: release-output/LalaStoryLab.apk
+          retention-days: 30
+
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        continue-on-error: true
+        with:
+          tag_name: latest
+          name: "Lala Story Lab Latest APK (Android)"
+          body: |
+            ### 📱 Lala Story Lab Android APK 安裝包
+
+            由 GitHub Actions 自動打包產出的 Android APK：
+            - **檔案名稱**：`LalaStoryLab.apk`
+            - **建置次數**：Build #${{ github.run_number }}
+            - **Commit**：${{ github.sha }}
+
+            #### 📲 手機安裝步驟：
+            1. 在手機瀏覽器中開啟此 Releases 頁面。
+            2. 點擊下方 **Assets** 展開區塊中的 `LalaStoryLab.apk` 進行下載。
+            3. 下載完成後在通知欄點擊安裝（若提示未授權安裝未知應用，點擊「設定」並允許即可）。
+          files: release-output/LalaStoryLab.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

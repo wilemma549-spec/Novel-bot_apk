@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="pwa-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#4f46e5" />
+    </linearGradient>
+    <linearGradient id="star-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e0f2fe" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#pwa-bg)"/>
+  <!-- Sparkle & Story Book Icon -->
+  <path d="M256 120 C256 185 205 236 140 236 C205 236 256 287 256 352 C256 287 307 236 372 236 C307 236 256 185 256 120 Z" fill="url(#star-glow)"/>
+  <circle cx="370" cy="140" r="28" fill="#facc15" />
+  <circle cx="150" cy="350" r="18" fill="#38bdf8" />
+  <!-- Book Spine / Branch Lines -->
+  <path d="M160 380 Q256 340 352 380" stroke="#ffffff" stroke-width="20" stroke-linecap="round" fill="none" opacity="0.9" />
+  <path d="M160 415 Q256 375 352 415" stroke="#bae6fd" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.75" />
+</svg>
