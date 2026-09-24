@@ -391,10 +391,25 @@ export class StoryStorageService {
     }
     try {
       const sess: StorySession = JSON.parse(raw);
+      if (!sess || typeof sess !== 'object') {
+        return INITIAL_SESSION;
+      }
+      if (!Array.isArray(sess.groupParticipantIds)) {
+        sess.groupParticipantIds = ['adam', 'daniel'];
+      }
       // Filter out any banned participant ids
       sess.groupParticipantIds = sess.groupParticipantIds.filter(id => !FABRICATED_CHARACTER_IDS.has(id));
       if (sess.groupParticipantIds.length === 0) {
         sess.groupParticipantIds = ['adam', 'daniel'];
+      }
+      if (!sess.selectedPrivateCharacterId) {
+        sess.selectedPrivateCharacterId = 'adam';
+      }
+      if (!sess.sceneLocation) {
+        sess.sceneLocation = INITIAL_SESSION.sceneLocation;
+      }
+      if (!sess.activeBranchId) {
+        sess.activeBranchId = INITIAL_SESSION.activeBranchId;
       }
       return sess;
     } catch {

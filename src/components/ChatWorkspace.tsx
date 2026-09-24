@@ -21,13 +21,6 @@ import {
   ChevronDown,
   CornerDownRight,
   Filter,
-  Play,
-  Pause,
-  Edit2,
-  CheckSquare,
-  Square,
-  Bookmark,
-  Check,
 } from 'lucide-react';
 import {
   Character,
@@ -40,8 +33,6 @@ import {
 import { StoryStorageService } from '../services/storage';
 import { FavoritesVaultModal } from './FavoritesVaultModal';
 import { ImportStoryTextModal } from './ImportStoryTextModal';
-import { PresetScenesModal } from './PresetScenesModal';
-import { AIServiceClient } from '../services/aiClient';
 
 interface ChatWorkspaceProps {
   characters: Character[];
@@ -73,22 +64,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [choices, setChoices] = useState<StoryChoiceOption[]>([]);
   const [isGeneratingChoices, setIsGeneratingChoices] = useState(false);
+  const [isChoicesCollapsed, setIsChoicesCollapsed] = useState(false);
   const [editingScene, setEditingScene] = useState(false);
   const [sceneInput, setSceneInput] = useState(session.sceneLocation);
   const [showParticipantSelector, setShowParticipantSelector] = useState(false);
   const [showQuickStats, setShowQuickStats] = useState(false);
-
-  // Preset scenes modal state
-  const [showPresetScenesModal, setShowPresetScenesModal] = useState(false);
-
-  // Message editing states (Author can edit/modify dialogues directly)
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [editingContent, setEditingContent] = useState('');
-  const [editingStageAction, setEditingStageAction] = useState('');
-
-  // Speaker control & Auto-dialogue states
-  const [selectedNextSpeakerId, setSelectedNextSpeakerId] = useState<string>('lala');
-  const [autoDialogueActive, setAutoDialogueActive] = useState(false);
 
   // Import story text modal state (User requirement: 把原來的文本放進行去，不要從頭開始也不要寫沒有發生過去的)
   const [showImportTextModal, setShowImportTextModal] = useState(false);
@@ -199,15 +179,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       const corpusContext = corpusItems.map(c => `[${c.title}]: ${c.content}`).join('\n\n');
       const authorFavoritesSummary = StoryStorageService.getAuthorFavoritesSummary();
 
-      const data = await AIServiceClient.requestChoices({
-        history: messages.slice(-8),
-        activeBranch: activeBranch?.branchName,
-        participants,
-        corpusContext,
-        isMatureMode: session.isMatureMode !== false,
-        authorFavoritesSummary,
+      const response = await fetch('/api/choices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          history: messages.slice(-8),
+          activeBranch: activeBranch?.branchName,
+          participants,
+          corpusContext,
+          isMatureMode: session.isMatureMode !== false,
+          authorFavoritesSummary,
+        }),
       });
-
+      const data = await response.json();
       if (Array.isArray(data) && data.length > 0) {
         setChoices(data);
       }
@@ -225,37 +209,35 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   }, [session.activeBranchId, session.mode]);
 
-  // Trigger Character Response (Server or Direct Client AI)
-  const requestCharacterSpeech = async (
-    userMsgText?: string,
-    isNextAction: boolean = false,
-    choiceData?: any,
-    specificSpeakerId?: string
-  ) => {
+  // Trigger Character Response from Server
+  const requestCharacterSpeech = async (userMsgText?: string, isNextAction: boolean = false, choiceData?: any) => {
     setIsLoading(true);
     try {
       const corpusItems = StoryStorageService.getCorpus().filter(c => c.isActive);
       const corpusContext = corpusItems.map(c => `[${c.title}]: ${c.content}`).join('\n\n');
       const authorFavoritesSummary = StoryStorageService.getAuthorFavoritesSummary();
 
-      const data = await AIServiceClient.requestChat({
-        mode: session.mode,
-        targetCharacter: session.mode === 'private' ? privatePartner : null,
-        participants: participants.filter(p => p.id !== 'lala'),
-        history: messages,
-        userMessage: userMsgText,
-        corpusContext,
-        branchTitle: activeBranch?.branchName,
-        actionPrompt: isNextAction ? 'next' : 'normal',
-        isMatureMode: session.isMatureMode !== false,
-        authorFavoritesSummary,
-        specificSpeakerId,
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: session.mode,
+          targetCharacter: session.mode === 'private' ? privatePartner : null,
+          participants: participants.filter(p => p.id !== 'lala'),
+          history: messages,
+          userMessage: userMsgText,
+          corpusContext,
+          branchTitle: activeBranch?.branchName,
+          actionPrompt: isNextAction ? 'next' : 'normal',
+          isMatureMode: session.isMatureMode !== false,
+          authorFavoritesSummary,
+        }),
       });
 
-      if (data && data.text) {
-        const replyingCharacter = characters.find(c => c.id === data.speakerId) || 
-          (specificSpeakerId ? characters.find(c => c.id === specificSpeakerId) : null) || 
-          privatePartner;
+      const data = await response.json();
+
+      if (data.text) {
+        const replyingCharacter = characters.find(c => c.id === data.speakerId) || privatePartner;
 
         const newMsg: StoryMessage = {
           id: `msg_${Date.now()}`,
@@ -268,24 +250,20 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           type: 'dialogue',
           nodeId: activeBranch.id,
           branchId: activeBranch.id,
-          statDelta: {
-            affectionDelta: data.affectionDelta || 0,
-            trustDelta: data.trustDelta || 0,
-            tensionDelta: data.tensionDelta || 0,
-          },
+          statDelta: data.statChanges,
         };
 
         StoryStorageService.addMessage(newMsg);
         setMessages(prev => [...prev, newMsg]);
 
         // Update stats
-        if (replyingCharacter && replyingCharacter.id !== 'lala') {
+        if (data.statChanges && replyingCharacter.id !== 'lala') {
           StoryStorageService.updateCharacterStats(
             replyingCharacter.id,
-            data.affectionDelta || 0,
-            data.trustDelta || 0,
-            data.tensionDelta || 0,
-            data.mindsetUpdate
+            data.statChanges.affectionDelta || 0,
+            data.statChanges.trustDelta || 0,
+            data.statChanges.tensionDelta || 0,
+            data.emotionalState
           );
         }
 
@@ -297,64 +275,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Trigger a specific character in-scene to speak next
-  const handleTriggerSpecificSpeaker = async (charId: string) => {
-    setSelectedNextSpeakerId(charId);
-    if (charId === 'lala') return;
-    await requestCharacterSpeech(undefined, true, undefined, charId);
-  };
-
-  // Auto Dialogue Loop Effect (Characters converse automatically according to personality & plot need)
-  useEffect(() => {
-    let timer: any;
-    if (autoDialogueActive && !isLoading) {
-      timer = setTimeout(() => {
-        const inSceneCharacters = participants.filter(p => p.id !== 'lala');
-        if (inSceneCharacters.length === 0) return;
-        const lastMsg = messages[messages.length - 1];
-        // Prefer character who didn't just speak
-        const candidates = inSceneCharacters.filter(c => c.id !== lastMsg?.senderId);
-        const nextSpeaker = candidates.length > 0
-          ? candidates[Math.floor(Math.random() * candidates.length)]
-          : inSceneCharacters[0];
-        
-        requestCharacterSpeech(undefined, true, undefined, nextSpeaker.id);
-      }, 4000);
-    }
-    return () => clearTimeout(timer);
-  }, [autoDialogueActive, isLoading, messages.length]);
-
-  // Message Editing Handlers (Author directly edits dialogue & stage action)
-  const handleStartEditMessage = (msg: StoryMessage) => {
-    setEditingMessageId(msg.id);
-    setEditingContent(msg.content);
-    setEditingStageAction(msg.stageAction || '');
-  };
-
-  const handleSaveEditMessage = (msgId: string) => {
-    StoryStorageService.updateMessage(msgId, {
-      content: editingContent,
-      stageAction: editingStageAction.trim() || undefined,
-    });
-    reloadMessages();
-    setEditingMessageId(null);
-  };
-
-  // Group participants select-all / clear-all
-  const selectAllGroupParticipants = () => {
-    const allIds = characters.filter(c => c.id !== 'lala').map(c => c.id);
-    const updated = { ...session, groupParticipantIds: allIds };
-    onSessionChange(updated);
-    StoryStorageService.saveSession(updated);
-  };
-
-  const clearAllGroupParticipants = () => {
-    const firstId = characters.find(c => c.id !== 'lala')?.id || 'adam';
-    const updated = { ...session, groupParticipantIds: [firstId] };
-    onSessionChange(updated);
-    StoryStorageService.saveSession(updated);
   };
 
   // Send message as Lala
@@ -389,10 +309,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   // Click choice option
   const handleSelectChoice = (option: StoryChoiceOption) => {
-    handleSendLalaMessage(option.text, `（選擇走向：${option.tag} - ${option.intent}）`, {
+    handleSendLalaMessage(option.text, undefined, {
       id: option.id,
       text: option.text,
-      intent: option.intent,
     });
   };
 
@@ -473,27 +392,27 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-3.5rem-4.5rem)] md:h-[calc(100vh-4rem)] max-w-7xl mx-auto px-2 sm:px-6 py-2 w-full max-w-full overflow-x-hidden">
-      {/* Top Workspace Header Bar */}
-      <div className="bg-white border border-sky-100 rounded-2xl p-2.5 sm:px-4 sm:py-2.5 mb-2 shadow-xs space-y-2 w-full max-w-full">
-        {/* Row 1: Mode Switcher, 18+ Toggle & Character Selection */}
-        <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap w-full">
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
+    <div className="flex flex-col h-[calc(100dvh-3.2rem-4rem)] md:h-[calc(100vh-3.8rem)] max-w-7xl mx-auto px-1.5 sm:px-4 py-1 sm:py-2 w-full max-w-full overflow-x-hidden">
+      {/* Top Workspace Header Bar (Compact & Space-Efficient to maximize message scrolling area) */}
+      <div className="bg-white border border-sky-100 rounded-xl p-2 sm:px-3 sm:py-2 mb-1.5 shadow-2xs space-y-1.5 w-full max-w-full">
+        {/* Row 1: Mode Switcher, 18+ Toggle, Partner Selector */}
+        <div className="flex items-center justify-between gap-1.5 flex-wrap sm:flex-nowrap w-full">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80">
               <button
                 onClick={() => {
                   const updated = { ...session, mode: 'private' as const };
                   onSessionChange(updated);
                   StoryStorageService.saveSession(updated);
                 }}
-                className={`flex items-center gap-1 px-2 sm:px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-all ${
                   session.mode === 'private'
-                    ? 'bg-white text-sky-700 shadow-xs border border-sky-200'
+                    ? 'bg-white text-sky-700 shadow-xs border border-sky-200 font-semibold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <User className="w-3.5 h-3.5 text-sky-500" />
-                <span className="text-[11px] sm:text-xs">單聊</span>
+                <User className="w-3 h-3 text-sky-500" />
+                <span className="text-[11px]">單聊</span>
               </button>
               <button
                 onClick={() => {
@@ -501,41 +420,40 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   onSessionChange(updated);
                   StoryStorageService.saveSession(updated);
                 }}
-                className={`flex items-center gap-1 px-2 sm:px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium transition-all ${
                   session.mode === 'group'
-                    ? 'bg-white text-indigo-700 shadow-xs border border-indigo-200'
+                    ? 'bg-white text-indigo-700 shadow-xs border border-indigo-200 font-semibold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Users className="w-3.5 h-3.5 text-indigo-500" />
-                <span className="text-[11px] sm:text-xs">群聊 ({session.groupParticipantIds.length})</span>
+                <Users className="w-3 h-3 text-indigo-500" />
+                <span className="text-[11px]">群聊 ({session.groupParticipantIds.length})</span>
               </button>
             </div>
 
-            {/* 18+ Mature Mode Toggle / Indicator */}
+            {/* 18+ Mature Mode Toggle */}
             <button
               onClick={handleToggleMatureMode}
-              className={`flex items-center gap-1 px-2 py-1 rounded-xl text-[11px] sm:text-xs font-semibold border transition-all ${
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border transition-all ${
                 session.isMatureMode !== false
                   ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 shadow-xs'
                   : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
               }`}
               title="點擊切換 18+ 成人向創作模式"
             >
-              <Flame className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <Flame className="w-3 h-3 text-rose-500 shrink-0" />
               <span>{session.isMatureMode !== false ? '🔞 18+' : '18+關'}</span>
             </button>
           </div>
 
-          {/* Right: Character / Participant Selector */}
+          {/* Right: Partner Selector */}
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
             {session.mode === 'private' ? (
               <div className="flex items-center gap-1">
-                <span className="text-[11px] text-slate-400 hidden xs:inline">對象:</span>
                 <select
                   value={session.selectedPrivateCharacterId}
                   onChange={e => switchPrivatePartner(e.target.value)}
-                  className="text-xs bg-slate-50 border border-sky-200 rounded-lg px-2 py-1 text-slate-700 font-medium focus:outline-hidden max-w-[170px] sm:max-w-none truncate"
+                  className="text-xs bg-slate-50 border border-sky-200 rounded-lg px-2 py-0.5 text-slate-700 font-medium focus:outline-hidden max-w-[140px] sm:max-w-[180px] truncate"
                 >
                   {characters
                     .filter(c => c.id !== 'lala')
@@ -552,112 +470,105 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             ) : (
               <button
                 onClick={() => setShowParticipantSelector(!showParticipantSelector)}
-                className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-lg hover:bg-indigo-100 transition-colors"
+                className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-lg hover:bg-indigo-100 transition-colors font-medium"
               >
-                <Users className="w-3.5 h-3.5" />
+                <Users className="w-3 h-3" />
                 <span>現場角色 ({session.groupParticipantIds.length})</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Row 2: Scene Location */}
-        <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-sky-50/60 border border-sky-100 px-3 py-1 rounded-xl w-full">
-          <MapPin className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-          {editingScene ? (
-            <div className="flex items-center gap-1 flex-1">
-              <input
-                type="text"
-                value={sceneInput}
-                onChange={e => setSceneInput(e.target.value)}
-                className="bg-white border border-sky-200 rounded px-1.5 py-0.5 text-xs text-slate-800 focus:outline-hidden flex-1"
-                placeholder="輸入當前空間場景..."
-              />
-              <button
-                onClick={handleSaveScene}
-                className="text-[11px] bg-sky-500 text-white px-2 py-0.5 rounded hover:bg-sky-600 shrink-0"
+        {/* Row 2: Compact Scene Location & Fast Action Buttons */}
+        <div className="flex items-center justify-between gap-1.5 text-xs text-slate-600 bg-sky-50/50 border border-sky-100/80 px-2.5 py-1 rounded-lg w-full">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <MapPin className="w-3 h-3 text-sky-500 shrink-0" />
+            {editingScene ? (
+              <div className="flex items-center gap-1 flex-1">
+                <input
+                  type="text"
+                  value={sceneInput}
+                  onChange={e => setSceneInput(e.target.value)}
+                  className="bg-white border border-sky-200 rounded px-1.5 py-0.5 text-xs text-slate-800 focus:outline-hidden flex-1"
+                  placeholder="輸入當前空間場景..."
+                />
+                <button
+                  onClick={handleSaveScene}
+                  className="text-[10px] bg-sky-500 text-white px-2 py-0.5 rounded hover:bg-sky-600 shrink-0"
+                >
+                  確認
+                </button>
+              </div>
+            ) : (
+              <span
+                onClick={() => setEditingScene(true)}
+                className="cursor-pointer hover:text-sky-700 font-medium truncate text-[11px] sm:text-xs"
+                title="點擊修改當前空間情境"
               >
-                確認
-              </button>
-            </div>
-          ) : (
-            <span
-              onClick={() => setEditingScene(true)}
-              className="cursor-pointer hover:text-sky-700 font-medium truncate flex-1"
-              title="點擊修改當前空間情境"
+                {session.sceneLocation}
+              </span>
+            )}
+          </div>
+
+          {/* Compact Action Icons Strip */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => {
+                if (onOpenImportStoryText) onOpenImportStoryText();
+                else setShowImportTextModal(true);
+              }}
+              className="flex items-center gap-0.5 text-[10px] sm:text-[11px] bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 px-1.5 py-0.5 rounded-md font-medium transition-all shrink-0"
+              title="預載整包 ZIP 檔案或貼上原著正文"
             >
-              {session.sceneLocation}
-            </span>
-          )}
-          <button
-            onClick={() => setShowPresetScenesModal(true)}
-            className="flex items-center gap-1 px-2.5 py-0.5 bg-white text-sky-700 border border-sky-200 hover:bg-sky-50 rounded-lg text-[11px] font-semibold shrink-0 transition-colors shadow-2xs"
-            title="選擇或自定義編輯預設經典場景"
-          >
-            <Bookmark className="w-3 h-3 text-sky-600" />
-            <span>預設場景庫</span>
-          </button>
-        </div>
+              <Archive className="w-3 h-3 text-indigo-600 shrink-0" />
+              <span>ZIP/原著</span>
+            </button>
 
-        {/* Row 3: Action Strip (Horizontally scrollable on mobile with smooth swipe) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 pt-0.5 w-full scrollbar-none">
-          {/* Import Story Text / ZIP Button */}
-          <button
-            onClick={() => {
-              if (onOpenImportStoryText) onOpenImportStoryText();
-              else setShowImportTextModal(true);
-            }}
-            className="flex items-center gap-1 text-[11px] sm:text-xs bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-700 hover:to-sky-700 text-white font-medium px-2.5 py-1 rounded-lg transition-all shadow-xs shrink-0"
-            title="預載整包 ZIP 檔案或貼上原著正文"
-          >
-            <Archive className="w-3.5 h-3.5 shrink-0" />
-            <span>預載 ZIP/原著</span>
-          </button>
+            <button
+              onClick={() => setShowFavoritesModal(true)}
+              className="flex items-center gap-0.5 text-[10px] sm:text-[11px] bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 px-1.5 py-0.5 rounded-md transition-colors font-medium shrink-0"
+              title="心動精選"
+            >
+              <Heart className="w-3 h-3 fill-rose-500 text-rose-500 shrink-0" />
+              <span>({favoriteCount})</span>
+            </button>
 
-          {/* Favorites (❤️ 加心心) Vault Button */}
-          <button
-            onClick={() => setShowFavoritesModal(true)}
-            className="flex items-center gap-1 text-[11px] sm:text-xs bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-colors font-medium shadow-xs shrink-0"
-            title="查看作者已標註加心心的金句與偏好風格庫"
-          >
-            <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500 shrink-0" />
-            <span>心動精選 ({favoriteCount})</span>
-          </button>
+            <button
+              onClick={() => {
+                setShowSearchBar(!showSearchBar);
+                if (!showSearchBar) setShowMatchesDropdown(true);
+              }}
+              className={`flex items-center gap-0.5 text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded-md border transition-all shrink-0 ${
+                showSearchBar || searchKeyword
+                  ? 'bg-sky-100 border-sky-300 text-sky-800'
+                  : 'bg-white border-sky-200 text-slate-700 hover:bg-sky-50'
+              }`}
+              title="搜尋過往對話紀錄"
+            >
+              <Search className="w-3 h-3 text-sky-500 shrink-0" />
+              <span>搜尋</span>
+            </button>
 
-          {/* Search Toggle Button */}
-          <button
-            onClick={() => {
-              setShowSearchBar(!showSearchBar);
-              if (!showSearchBar) setShowMatchesDropdown(true);
-            }}
-            className={`flex items-center gap-1 text-[11px] sm:text-xs px-2.5 py-1 rounded-lg border transition-all shrink-0 ${
-              showSearchBar || searchKeyword
-                ? 'bg-sky-50 border-sky-300 text-sky-700 shadow-xs'
-                : 'bg-white border-sky-200 text-slate-700 hover:bg-sky-50'
-            }`}
-            title="搜尋過往對話紀錄"
-          >
-            <Search className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-            <span>搜尋對話</span>
-          </button>
+            <button
+              onClick={() => setShowQuickStats(!showQuickStats)}
+              className={`flex items-center gap-0.5 text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded-md border transition-all shrink-0 ${
+                showQuickStats ? 'bg-sky-100 border-sky-300 text-sky-800' : 'bg-white border-sky-200 text-slate-700 hover:bg-sky-50'
+              }`}
+              title="開啟即時角色數據看板"
+            >
+              <Sliders className="w-3 h-3 text-sky-500 shrink-0" />
+              <span className="hidden xs:inline">看板</span>
+            </button>
 
-          <button
-            onClick={() => setShowQuickStats(!showQuickStats)}
-            className="flex items-center gap-1 text-[11px] sm:text-xs border border-sky-200 bg-white text-slate-700 px-2.5 py-1 rounded-lg hover:bg-sky-50 transition-colors shrink-0"
-            title="開啟即時角色數據看板"
-          >
-            <Sliders className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-            <span>即時看板</span>
-          </button>
-
-          <button
-            onClick={() => onOpenDiary(messages)}
-            className="flex items-center gap-1 text-[11px] sm:text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-white px-2.5 py-1 rounded-lg hover:from-amber-600 hover:to-amber-700 shadow-xs transition-all shrink-0"
-            title="將最新劇情階段寫成深刻日記"
-          >
-            <BookOpen className="w-3.5 h-3.5 shrink-0" />
-            <span>寫成日記</span>
-          </button>
+            <button
+              onClick={() => onOpenDiary(messages)}
+              className="flex items-center gap-0.5 text-[10px] sm:text-[11px] bg-amber-500 hover:bg-amber-600 text-white px-1.5 py-0.5 rounded-md font-medium transition-all shrink-0"
+              title="將最新劇情階段寫成深刻日記"
+            >
+              <BookOpen className="w-3 h-3 shrink-0" />
+              <span className="hidden xs:inline">日記</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -841,32 +752,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       {/* Group Participant Drawer */}
       {showParticipantSelector && session.mode === 'group' && (
         <div className="bg-white border border-indigo-200 rounded-2xl p-3 mb-2 shadow-md animate-in fade-in duration-150">
-          <div className="text-xs font-semibold text-slate-700 mb-2 flex items-center justify-between flex-wrap gap-2">
+          <div className="text-xs font-semibold text-slate-700 mb-2 flex items-center justify-between">
             <span>選擇當前在場的多位角色（點擊切換進出房間）：</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={selectAllGroupParticipants}
-                className="flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold transition-colors"
-                title="選取全部角色進入當前房間場景"
-              >
-                <CheckSquare className="w-3.5 h-3.5" />
-                <span>全選在場</span>
-              </button>
-              <button
-                onClick={clearAllGroupParticipants}
-                className="flex items-center gap-1 px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-[11px] font-medium transition-colors"
-                title="清空並重置角色"
-              >
-                <Square className="w-3 h-3" />
-                <span>重置</span>
-              </button>
-              <button
-                onClick={() => setShowParticipantSelector(false)}
-                className="text-slate-400 hover:text-slate-600 ml-1 text-xs"
-              >
-                關閉
-              </button>
-            </div>
+            <button
+              onClick={() => setShowParticipantSelector(false)}
+              className="text-slate-400 hover:text-slate-600"
+            >
+              關閉
+            </button>
           </div>
           <div className="flex flex-wrap gap-2">
             {characters
@@ -894,7 +787,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       )}
 
       {/* Main Dialogue Scrollable Body with Clean White Cards & Light Blue Borders */}
-      <div className="flex-1 overflow-y-auto px-1 sm:px-2 py-3 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-1 sm:px-2 py-2 space-y-3">
         {messages.map((msg) => {
           const isLala = msg.senderId === 'lala';
           const senderChar = characters.find(c => c.id === msg.senderId);
@@ -919,8 +812,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   </span>
                 )}
                 {msg.choiceSelected && (
-                  <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
-                    分歧點：{msg.choiceSelected.intent}
+                  <span className="text-[10px] text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 font-medium">
+                    選項 {msg.choiceSelected.id}
                   </span>
                 )}
                 <span className="text-[10px] text-slate-300">
@@ -936,7 +829,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   isHighlighted ? 'ring-3 ring-sky-400 bg-sky-50/60 shadow-lg' : ''
                 }`}
               >
-                {/* Heart / Favorite Button & Edit Button on top right */}
+                {/* Heart / Favorite Button & Quick Tag Popover on top right */}
                 <div className="absolute right-3 top-3 flex items-center gap-1.5">
                   {msg.isFavorite && (
                     <span
@@ -947,15 +840,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       ❤️ {msg.favoriteCategory || '喜愛金句'}
                     </span>
                   )}
-
-                  {/* Edit Button */}
-                  <button
-                    onClick={() => handleStartEditMessage(msg)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-all opacity-70 group-hover:opacity-100"
-                    title="編輯此句對白或動作描寫"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
 
                   <button
                     onClick={() => handleToggleFavorite(msg)}
@@ -1021,67 +905,23 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   </div>
                 )}
 
-                {editingMessageId === msg.id ? (
-                  <div className="space-y-2 mt-2 pt-1 border-t border-sky-100 animate-in fade-in duration-150">
-                    <div className="text-[11px] font-bold text-sky-800 flex items-center gap-1">
-                      <Edit3 className="w-3.5 h-3.5 text-sky-600" />
-                      <span>自行編輯對白與動作（修正或改編）：</span>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">台詞對白：</label>
-                      <textarea
-                        value={editingContent}
-                        onChange={e => setEditingContent(e.target.value)}
-                        rows={3}
-                        className="w-full bg-white border border-sky-300 rounded-xl p-2 text-xs sm:text-[13px] text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-sky-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-500 block mb-0.5">動作/微表情描寫（選填）：</label>
-                      <input
-                        type="text"
-                        value={editingStageAction}
-                        onChange={e => setEditingStageAction(e.target.value)}
-                        className="w-full bg-white border border-sky-300 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-hidden"
-                        placeholder="例如：緩緩抬起視線，若有所思地凝視著對面..."
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2 pt-1">
-                      <button
-                        onClick={() => setEditingMessageId(null)}
-                        className="px-2.5 py-1 text-slate-500 hover:text-slate-700 text-xs"
-                      >
-                        取消
-                      </button>
-                      <button
-                        onClick={() => handleSaveEditMessage(msg.id)}
-                        className="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-semibold text-xs transition-colors shadow-2xs"
-                      >
-                        儲存修改
-                      </button>
-                    </div>
+                {/* Stage Action / 文具情境描寫 */}
+                {msg.stageAction && (
+                  <div className="text-xs text-sky-800/80 bg-sky-50/70 border border-sky-100/80 rounded-xl px-3 py-1.5 mb-2.5 italic leading-relaxed pr-12">
+                    ✦ {renderHighlightedText(msg.stageAction, searchKeyword)}
                   </div>
-                ) : (
-                  <>
-                    {/* Stage Action / 文具情境描寫 */}
-                    {msg.stageAction && (
-                      <div className="text-xs text-sky-800/80 bg-sky-50/70 border border-sky-100/80 rounded-xl px-3 py-1.5 mb-2.5 italic leading-relaxed pr-12">
-                        ✦ {renderHighlightedText(msg.stageAction, searchKeyword)}
-                      </div>
-                    )}
+                )}
 
-                    {/* Spoken Dialogue Text with crisp typography */}
-                    <p className="text-sm sm:text-base text-slate-800 leading-relaxed font-sans whitespace-pre-wrap pr-10">
-                      {renderHighlightedText(msg.content, searchKeyword)}
-                    </p>
+                {/* Spoken Dialogue Text with crisp typography */}
+                <p className="text-sm sm:text-base text-slate-800 leading-relaxed font-sans whitespace-pre-wrap pr-10">
+                  {renderHighlightedText(msg.content, searchKeyword)}
+                </p>
 
-                    {/* Author's Favorite Note if any */}
-                    {msg.favoriteNote && (
-                      <div className="mt-2 text-[11px] text-rose-600 bg-rose-50/50 border border-rose-100 rounded-lg px-2 py-0.5 inline-block italic">
-                        💭 作者心動筆記：{msg.favoriteNote}
-                      </div>
-                    )}
-                  </>
+                {/* Author's Favorite Note if any */}
+                {msg.favoriteNote && (
+                  <div className="mt-2 text-[11px] text-rose-600 bg-rose-50/50 border border-rose-100 rounded-lg px-2 py-0.5 inline-block italic">
+                    💭 作者心動筆記：{msg.favoriteNote}
+                  </div>
                 )}
 
                 {/* Stat Changes Delta Badge (if any) */}
@@ -1169,121 +1009,70 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         </div>
       )}
 
-      {/* Speaker Guidance & Auto Dialogue Bar (Click character name to have them speak or auto-speak) */}
-      <div className="bg-white/95 border border-sky-200/80 rounded-2xl p-2 sm:px-3 sm:py-2 mb-2 shadow-xs flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none flex-1 min-w-0">
-          <span className="text-[11px] font-semibold text-slate-500 shrink-0">指定接續說話：</span>
-          
-          {/* Lala Button */}
-          <button
-            onClick={() => handleTriggerSpecificSpeaker('lala')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-              selectedNextSpeakerId === 'lala'
-                ? 'bg-rose-500 text-white shadow-xs'
-                : 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-            }`}
-          >
-            <span>✨ 啦啦 (你)</span>
-          </button>
-
-          {/* In-scene characters */}
-          {participants
-            .filter(p => p.id !== 'lala')
-            .map(char => {
-              const isSelected = selectedNextSpeakerId === char.id;
-              return (
-                <button
-                  key={char.id}
-                  onClick={() => handleTriggerSpecificSpeaker(char.id)}
-                  disabled={isLoading}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-                    isSelected
-                      ? 'bg-sky-600 text-white shadow-xs'
-                      : 'bg-slate-50 text-slate-700 border border-slate-200 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-200'
-                  }`}
-                  title={`點擊指定由 ${char.name} 接續在場發言`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                  <span>{char.name} 說話</span>
-                </button>
-              );
-            })}
-        </div>
-
-        {/* Auto Dialogue Toggle */}
-        <button
-          onClick={() => setAutoDialogueActive(!autoDialogueActive)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            autoDialogueActive
-              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs animate-pulse ring-2 ring-amber-300'
-              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-          }`}
-          title="開啟後，在場角色將根據劇情需要與各自性格主動決定是否說話"
-        >
-          {autoDialogueActive ? (
-            <>
-              <Pause className="w-3.5 h-3.5 fill-white" />
-              <span>自動推演中 (點擊暫停)</span>
-            </>
-          ) : (
-            <>
-              <Play className="w-3.5 h-3.5 fill-slate-600 text-slate-600" />
-              <span>角色自動說話</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* 3 Branch Choices Bar for Lala */}
-      <div className="bg-white/95 border border-sky-200/90 rounded-2xl p-3 mb-2 shadow-xs">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-sky-500" />
-              啦啦的三項分歧決策點
-            </span>
-            <span className="text-[11px] text-slate-400 hidden sm:inline">
-              （點擊即引導劇情走向不同發展，皆恪守原著心理模型）
-            </span>
+      {/* 3 Spoken Options Bar for Lala (Compact, Clean, Spoken Dialogue Only) */}
+      <div className="bg-white/95 border border-sky-200 rounded-xl p-2 mb-1.5 shadow-2xs">
+        <div className="flex items-center justify-between gap-2 mb-1.5 px-1">
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+            <span className="text-xs font-bold text-slate-800">3 個對白選項</span>
+            <button
+              onClick={() => setIsChoicesCollapsed(!isChoicesCollapsed)}
+              className="text-[11px] text-sky-600 hover:text-sky-800 flex items-center gap-0.5 ml-1 transition-colors"
+              title={isChoicesCollapsed ? '展開選項' : '收起選項以騰出更多對話滾動空間'}
+            >
+              <span>{isChoicesCollapsed ? '(點擊展開)' : '(收起)'}</span>
+              {isChoicesCollapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+            </button>
           </div>
+
           <button
             onClick={handleFetchChoices}
             disabled={isGeneratingChoices}
-            className="flex items-center gap-1 text-xs text-sky-600 hover:text-sky-800 transition-colors"
+            className="flex items-center gap-1 text-[11px] text-sky-600 hover:text-sky-800 transition-colors font-medium"
+            title="重新產生 3 個選項"
           >
             <RefreshCw className={`w-3 h-3 ${isGeneratingChoices ? 'animate-spin' : ''}`} />
-            <span>重新產生選項</span>
+            <span>換一批</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-          {choices.map((option) => (
-            <button
-              key={option.id}
-              onClick={() => handleSelectChoice(option)}
-              disabled={isLoading}
-              className="group text-left bg-white border border-sky-100 hover:border-sky-300 hover:bg-sky-50/50 p-2.5 rounded-xl transition-all shadow-xs flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
-                    選項 {option.id} · {option.tag}
-                  </span>
-                  <span className="text-[10px] text-slate-400 group-hover:text-sky-600 flex items-center gap-0.5">
-                    <span>點擊選擇</span>
-                    <CornerDownRight className="w-3 h-3" />
-                  </span>
+        {!isChoicesCollapsed && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5">
+            {choices.map((option, idx) => {
+              const optionNumber = option.id || (idx + 1).toString();
+              return (
+                <div
+                  key={option.id || idx}
+                  className="group flex items-center justify-between gap-1.5 bg-slate-50/90 hover:bg-sky-50/80 border border-slate-200 hover:border-sky-300 rounded-lg px-2.5 py-1.5 transition-all text-left"
+                >
+                  <button
+                    onClick={() => handleSelectChoice(option)}
+                    disabled={isLoading}
+                    className="flex-1 flex items-start gap-1.5 min-w-0 text-left cursor-pointer"
+                    title="點擊直接說出此句"
+                  >
+                    <span className="shrink-0 w-4 h-4 rounded bg-sky-100 text-sky-700 text-[10px] font-bold flex items-center justify-center mt-0.5">
+                      {optionNumber}
+                    </span>
+                    <p className="text-xs sm:text-[13px] text-slate-800 font-medium leading-snug line-clamp-2">
+                      {option.text}
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setInputText(option.text);
+                    }}
+                    className="p-1 text-slate-400 hover:text-sky-600 hover:bg-white rounded transition-colors shrink-0"
+                    title="填入輸入框修改"
+                  >
+                    <CornerDownRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <p className="text-xs sm:text-[13px] text-slate-800 leading-snug font-medium mb-1">
-                  {option.text}
-                </p>
-              </div>
-              <p className="text-[10px] text-slate-400 italic">
-                目標：{option.intent}
-              </p>
-            </button>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Input Box and Action Bar */}
@@ -1373,19 +1162,6 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         onRefreshData={() => {
           reloadMessages();
           onRefreshData();
-        }}
-      />
-
-      {/* Preset Scenes Modal */}
-      <PresetScenesModal
-        isOpen={showPresetScenesModal}
-        onClose={() => setShowPresetScenesModal(false)}
-        currentScene={session.sceneLocation}
-        onSelectScene={(newSceneName) => {
-          const updated = { ...session, sceneLocation: newSceneName };
-          onSessionChange(updated);
-          StoryStorageService.saveSession(updated);
-          setSceneInput(newSceneName);
         }}
       />
     </div>

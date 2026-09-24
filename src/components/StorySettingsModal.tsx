@@ -13,9 +13,11 @@ import {
   ChevronRight,
   UserPlus,
   Edit3,
+  FileText,
 } from 'lucide-react';
 import { StoryStorageService } from '../services/storage';
 import { Character, StorySession } from '../types/story';
+import { AddCharacterModal } from './AddCharacterModal';
 
 interface StorySettingsModalProps {
   isOpen: boolean;
@@ -46,6 +48,7 @@ export const StorySettingsModal: React.FC<StorySettingsModalProps> = ({
   // Characters quick add / copy state
   const [showNewCharForm, setShowNewCharForm] = useState(false);
   const [showCopyCharForm, setShowCopyCharForm] = useState(false);
+  const [showDocImportModal, setShowDocImportModal] = useState(false);
   const [selectedCharToCopy, setSelectedCharToCopy] = useState<string>(characters[1]?.id || 'adam');
   const [copyCharNewName, setCopyCharNewName] = useState('');
 
@@ -297,7 +300,16 @@ export const StorySettingsModal: React.FC<StorySettingsModalProps> = ({
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-slate-600 font-medium">當前劇本角色列表：</span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    onClick={() => setShowDocImportModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-lg hover:bg-emerald-100 font-semibold transition-colors"
+                    title="支援 TXT、PDF、Word 文檔上傳或直接貼上文字"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>TXT/文檔匯入</span>
+                  </button>
+
                   <button
                     onClick={() => {
                       setShowCopyCharForm(!showCopyCharForm);
@@ -317,7 +329,7 @@ export const StorySettingsModal: React.FC<StorySettingsModalProps> = ({
                     className="flex items-center gap-1 px-2.5 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded-lg hover:bg-sky-100 font-semibold transition-colors"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
-                    <span>快捷新增角色</span>
+                    <span>快捷新增</span>
                   </button>
                 </div>
               </div>
@@ -557,6 +569,19 @@ export const StorySettingsModal: React.FC<StorySettingsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Add / Import Character Modal */}
+      <AddCharacterModal
+        isOpen={showDocImportModal}
+        onClose={() => {
+          setShowDocImportModal(false);
+          onRefreshData();
+        }}
+        characters={characters}
+        session={session}
+        onSessionChange={onSessionChange}
+        onRefreshData={onRefreshData}
+      />
     </div>
   );
 };

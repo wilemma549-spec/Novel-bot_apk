@@ -15,15 +15,14 @@ import {
   Compass,
 } from 'lucide-react';
 import { StoryStorageService } from '../services/storage';
-import { StorySession, StoryBranchNode, Character } from '../types/story';
-import { StorySettingsModal } from './StorySettingsModal';
+import { StorySession, StoryBranchNode } from '../types/story';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderNavProps {
   currentTab: 'chat' | 'tree' | 'dashboard' | 'diary' | 'corpus';
   onTabChange: (tab: 'chat' | 'tree' | 'dashboard' | 'diary' | 'corpus') => void;
   session: StorySession;
   branchNodes: StoryBranchNode[];
-  characters: Character[];
   onSessionChange: (session: StorySession) => void;
   onRefreshData: () => void;
   onOpenImportStoryText?: () => void;
@@ -34,13 +33,11 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onTabChange,
   session,
   branchNodes,
-  characters,
   onSessionChange,
   onRefreshData,
   onOpenImportStoryText,
 }) => {
   const [showBackupMenu, setShowBackupMenu] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [syncNotice, setSyncNotice] = useState('自動同步已就緒');
 
   const activeBranch = branchNodes.find(n => n.id === session.activeBranchId) || branchNodes[0];
@@ -85,18 +82,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-sky-100 shadow-xs">
-      <div className="max-w-7xl mx-auto px-2.5 sm:px-6">
-        <div className="flex items-center justify-between h-14 sm:h-16">
-          {/* Logo & Project Info (Blue star is setting & story switcher button) */}
+      <div className="max-w-7xl mx-auto px-2 sm:px-6">
+        <div className="flex items-center justify-between h-12 sm:h-14">
+          {/* Logo & Project Info */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <button
-              onClick={() => setShowSettingsModal(true)}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-sky-400 to-blue-500 text-white flex items-center justify-center shadow-sm shadow-sky-200 shrink-0 hover:scale-105 active:scale-95 transition-all cursor-pointer ring-2 ring-sky-300/80 hover:ring-sky-400"
-              title="點擊打開故事劇本與角色總覽設定"
-            >
-              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-            </button>
-            <div className="min-w-0 cursor-pointer" onClick={() => setShowSettingsModal(true)}>
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-sky-400 to-blue-500 text-white flex items-center justify-center shadow-sm shadow-sky-200 shrink-0">
+              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="font-bold text-slate-800 text-sm sm:text-base tracking-tight truncate">
                   Lala Story Lab
@@ -174,8 +167,11 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             </button>
           </nav>
 
-          {/* Database & Sync Controls */}
+          {/* Database & Sync Controls & PWA Install */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Install App Button */}
+            <PWAInstallButton variant="compact" />
+
             {/* Direct Import Original Text / ZIP Package button */}
             {onOpenImportStoryText && (
               <button
@@ -253,16 +249,6 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Story & Character Settings Modal opened by blue star */}
-      <StorySettingsModal
-        isOpen={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-        characters={characters}
-        session={session}
-        onSessionChange={onSessionChange}
-        onRefreshData={onRefreshData}
-      />
     </header>
   );
 };

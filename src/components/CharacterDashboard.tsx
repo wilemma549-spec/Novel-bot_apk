@@ -15,9 +15,11 @@ import {
   Sparkles,
   Trash2,
   Archive,
+  FileText,
 } from 'lucide-react';
 import { Character, CharacterStats, StorySession } from '../types/story';
 import { StoryStorageService } from '../services/storage';
+import { AddCharacterModal } from './AddCharacterModal';
 
 interface CharacterDashboardProps {
   characters: Character[];
@@ -54,6 +56,7 @@ export const CharacterDashboard: React.FC<CharacterDashboardProps> = ({
 
   // New character modal
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddCharacterModal, setShowAddCharacterModal] = useState(false);
   const [newCharName, setNewCharName] = useState('');
   const [newCharTitle, setNewCharTitle] = useState('');
   const [newCharRelation, setNewCharRelation] = useState('');
@@ -227,11 +230,12 @@ export const CharacterDashboard: React.FC<CharacterDashboardProps> = ({
             </button>
           )}
           <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
+            onClick={() => setShowAddCharacterModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors shrink-0 cursor-pointer"
+            title="支援上傳 TXT/PDF、貼上文字、手動填寫、複製角色與導出 TXT"
           >
             <Plus className="w-4 h-4" />
-            <span>新增角色</span>
+            <span>➕ 增加 / 文檔匯入角色</span>
           </button>
         </div>
       </div>
@@ -719,6 +723,16 @@ export const CharacterDashboard: React.FC<CharacterDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Add / Import Character Modal */}
+      <AddCharacterModal
+        isOpen={showAddCharacterModal}
+        onClose={() => setShowAddCharacterModal(false)}
+        characters={characters}
+        session={session}
+        onSessionChange={onSessionChange}
+        onRefreshData={onRefreshData}
+      />
     </div>
   );
 };
